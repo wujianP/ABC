@@ -7,6 +7,7 @@ import shutil
 import time
 import random
 import math
+import wandb
 import numpy as np
 import wideresnetwithABC as models
 import torch
@@ -66,6 +67,8 @@ parser.add_argument("--sp_power", type=int)
 parser.add_argument("--bmb_loss_wt", type=float)
 parser.add_argument("--num_max_l", type=int)
 parser.add_argument("--num_max_u", type=int)
+parser.add_argument("--wandb_project_name", type=str)
+parser.add_argument("--wandb_name", type=str)
 
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
@@ -95,6 +98,17 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 def main():
+
+    wandb.init(
+        project=args.wandb_project_name,
+        name=args.wandb_name,
+        id=args.wandb_name,
+        notes=None,
+        tags=[],
+        resume='auto',
+        config=vars(args),
+    )
+
     global best_acc
 
     if not os.path.isdir(args.out):
@@ -170,7 +184,7 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         # Training part
-        train_loss, train_loss_x, train_loss_u, abcloss = train(labeled_trainloader,
+        train_loss, train_loss_x, train_loss_u, abcloss, bmbloss = train(labeled_trainloader,
                                                                 unlabeled_trainloader,
                                                                 model, optimizer,
                                                                 ema_optimizer,
@@ -189,6 +203,15 @@ def main():
 
         logger.append([train_loss, train_loss_x, train_loss_u,abcloss, test_loss, test_acc])
 
+        wandb.log({
+            "acc": test_acc,
+            "loss_total": train_loss,
+            "loss_L": train_loss_x,
+            "loss_U": train_loss_u,
+            "loss_abc": abcloss,
+            "loss_bmb": bmbloss
+        })
+
         # Save models
         save_checkpoint({
                 'epoch': epoch + 1,
@@ -200,6 +223,7 @@ def main():
 
     logger.close()
 
+
 def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, criterion, epoch,ir2, tcp):
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -207,6 +231,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
     losses_x = AverageMeter()
     losses_u = AverageMeter()
     losses_abc = AverageMeter()
+    losses_bmb = AverageMeter()
     end = time.time()
 
     bar = Bar('Training', max=args.val_iteration)
@@ -316,6 +341,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         losses_x.update(Lx.item(), inputs_x.size(0))
         losses_u.update(Lu.item(), inputs_x.size(0))
         losses_abc.update(abcloss.item(), inputs_x.size(0))
+        losses_bmb.update(loss_tcp.item(), inputs_x.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -338,12 +364,12 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
                     loss_x=losses_x.avg,
                     loss_u=losses_u.avg,
                     loss_m=losses_abc.avg,
-                    loss_tcp=loss_tcp.item()
+                    loss_tcp=losses_bmb.avg
                     )
         bar.next()
     bar.finish()
 
-    return (losses.avg, losses_x.avg, losses_u.avg, losses_abc.avg)
+    return (losses.avg, losses_x.avg, losses_u.avg, losses_abc.avg, losses_bmb.avg)
 
 def validate(valloader, model,criterion, mode):
 
