@@ -19,6 +19,7 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 from scipy import optimize
+from bmb import TailClassPool
 
 parser = argparse.ArgumentParser(description='PyTorch fixMatch Training')
 # Optimization options
@@ -56,6 +57,13 @@ parser.add_argument('--ema-decay', default=0.999, type=float)
 #dataset and imbalanced type
 parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset')
 parser.add_argument('--imbalancetype', type=str, default='long', help='Long tailed or step imbalanced')
+
+# add by BMB
+parser.add_argument("--pool_size", type=int, default=128)
+parser.add_argument("--get_num", type=int, default=64)
+parser.add_argument("--bp_power", type=int)
+parser.add_argument("--sp_power", type=int)
+
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 if args.dataset=='cifar10':
@@ -147,17 +155,23 @@ def main():
         logger = Logger(os.path.join(args.out, 'log.txt'), title=title)
         logger.set_names(['Train Loss', 'Train Loss X', 'Train Loss U', 'abcloss','Test Loss', 'Test Acc.'])
 
+    tcp = TailClassPool(pool_size=args.pool_size,
+                        balance_power=args.bp_power,
+                        sample_power=args.sp_power)
+
     for epoch in range(start_epoch, args.epochs):
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
 
         # Training part
         train_loss, train_loss_x, train_loss_u, abcloss = train(labeled_trainloader,
-                                                                                                unlabeled_trainloader,
-                                                                                                model, optimizer,
-                                                                                                ema_optimizer,
-                                                                                                train_criterion,
-                                                                                                epoch,ir2)
+                                                                unlabeled_trainloader,
+                                                                model, optimizer,
+                                                                ema_optimizer,
+                                                                train_criterion,
+                                                                epoch,
+                                                                ir2,
+                                                                tcp)
 
         test_loss, test_acc, testclassacc = validate(test_loader, ema_model, criterion, mode='Test Stats ')
         if args.dataset == 'cifar10':
@@ -179,7 +193,7 @@ def main():
             }, epoch + 1)
 
     logger.close()
-def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, criterion, epoch,ir2):
+def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, criterion, epoch,ir2, tcp):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -225,6 +239,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
 
         targets_u = torch.argmax(targets_u2, dim=1)
 
+        from IPython import embed
+        embed(header='abc')
         q = model(inputs_x)
         q2 = model(inputs_u2)
         q3 = model(inputs_u3)
