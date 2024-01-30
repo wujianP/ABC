@@ -164,7 +164,7 @@ def main():
     tcp = TailClassPool(pool_size=args.pool_size,
                         balance_power=args.bp_power,
                         sample_power=args.sp_power,
-                        class_distribution=N_SAMPLES_PER_CLASS)
+                        class_distribution=torch.tensor(N_SAMPLES_PER_CLASS))
 
     for epoch in range(start_epoch, args.epochs):
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
