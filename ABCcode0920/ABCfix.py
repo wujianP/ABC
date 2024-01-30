@@ -105,9 +105,12 @@ def main():
     ir2=N_SAMPLES_PER_CLASS[-1]/np.array(N_SAMPLES_PER_CLASS)
     if args.dataset == 'cifar10':
         train_labeled_set, train_unlabeled_set,test_set = dataset.get_cifar10('./data', N_SAMPLES_PER_CLASS,U_SAMPLES_PER_CLASS)
+        class_num = 10
     elif args.dataset == 'svhn':
+        class_num = 10
         train_labeled_set, train_unlabeled_set, test_set = dataset.get_SVHN('./data', N_SAMPLES_PER_CLASS,U_SAMPLES_PER_CLASS)
     elif args.dataset =='cifar100':
+        class_num = 100
         train_labeled_set, train_unlabeled_set, test_set = dataset.get_cifar100('./data', N_SAMPLES_PER_CLASS,U_SAMPLES_PER_CLASS)
 
     labeled_trainloader = data.DataLoader(train_labeled_set, batch_size=args.batch_size, shuffle=True, num_workers=4,
@@ -160,7 +163,8 @@ def main():
 
     tcp = TailClassPool(pool_size=args.pool_size,
                         balance_power=args.bp_power,
-                        sample_power=args.sp_power)
+                        sample_power=args.sp_power,
+                        class_distribution=N_SAMPLES_PER_CLASS)
 
     for epoch in range(start_epoch, args.epochs):
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
@@ -177,11 +181,11 @@ def main():
 
         test_loss, test_acc, testclassacc = validate(test_loader, ema_model, criterion, mode='Test Stats ')
         if args.dataset == 'cifar10':
-            print("each class accuracy test", testclassacc, testclassacc.mean(),testclassacc[:5].mean(),testclassacc[5:].mean())
+            print(f"[{epoch+1} / 500]each class accuracy test", testclassacc, testclassacc.mean(),testclassacc[:5].mean(), testclassacc[5:].mean())
         elif args.dataset == 'svhn':
-            print("each class accuracy test", testclassacc, testclassacc.mean(), testclassacc[:5].mean(),testclassacc[5:].mean())
+            print(f"[{epoch+1} / 500]each class accuracy test", testclassacc, testclassacc.mean(), testclassacc[:5].mean(), testclassacc[5:].mean())
         elif args.dataset == 'cifar100':
-            print("each class accuracy test", testclassacc, testclassacc.mean(), testclassacc[:50].mean(),testclassacc[50:].mean())
+            print(f"[{epoch+1} / 500]each class accuracy test", testclassacc, testclassacc.mean(), testclassacc[:50].mean(), testclassacc[50:].mean())
 
         logger.append([train_loss, train_loss_x, train_loss_u,abcloss, test_loss, test_acc])
 
@@ -242,8 +246,6 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
 
         targets_u = torch.argmax(targets_u2, dim=1)
 
-        from IPython import embed
-        embed(header='abc')
         q = model(inputs_x)
         q2 = model(inputs_u2)
         q3 = model(inputs_u3)
@@ -277,6 +279,27 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         logitsu2 = F.softmax(logitu2)
         logitsu3 = F.softmax(logitu3)
 
+        # >>>>>>>>>>>>>>>>> TCP BMB HERE
+        tcp_soft_labels = torch.cat([logitsu2, logitsu3], dim=0).detach()
+        tcp_input_feats = torch.cat([q2, q3], dim=0)
+        # put sample
+        max_probs, hard_labels = torch.max(tcp_soft_labels, dim=1)
+        pass_threshold = max_probs.ge(args.tau)  # one means pass
+        input_idx = torch.where(pass_threshold == 1)  # 超过threshold的样本的坐标
+        input_feat = tcp_input_feats[input_idx]
+        input_labels = hard_labels[input_idx]
+        remove_num, remove_labels = tcp.put_samples(input_features=input_feat, input_labels=input_labels)
+        # get sample
+        tcp_got_features, tcp_got_labels, tcp_get_num = tcp.get_samples(get_num=args.get_num)
+        # compute loss
+        if tcp_get_num > 0:
+            from bmb import label2onehot
+            tcp_labels = label2onehot(tcp_got_labels, tcp_get_num, num_class)
+            tcp_logits = model.classify2(tcp_got_features)
+            loss_tcp = -torch.mean(torch.sum(F.log_softmax(tcp_logits, dim=1) * tcp_labels, dim=1))
+        else:
+            loss_tcp = torch.zeros(1).cuda()
+
         abcloss = -torch.mean(maskforbalance * torch.sum(torch.log(logits) * targets_x2.cuda(0), dim=1))
         abcloss1 = -torch.mean(
             select_mask2 * maskforbalanceu * torch.sum(torch.log(logitsu2) * logitsu1.cuda(0).detach(), dim=1))
@@ -286,7 +309,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
 
         totalabcloss=abcloss+abcloss1+abcloss2
         Lx, Lu = criterion(logits_x, all_targets[:batch_size], logits_u, all_targets[batch_size:], select_mask)
-        loss = Lx + Lu+totalabcloss
+        loss = Lx + Lu+totalabcloss + loss_tcp * args.bmb_loss_wt
 
         # record loss
         losses.update(loss.item(), inputs_x.size(0))
@@ -304,7 +327,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
 
         # plot progress
         bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | ' \
-                      'Loss: {loss:.4f} | Loss_x: {loss_x:.4f} | Loss_u: {loss_u:.4f}| Loss_m: {loss_m:.4f}'.format(
+                      'Loss: {loss:.4f} | Loss_x: {loss_x:.4f} | Loss_u: {loss_u:.4f}| Loss_m: {loss_m:.4f} | loss_bmb: {loss_bmb:.4f}'.format(
                     batch=batch_idx + 1,
                     size=args.val_iteration,
                     data=data_time.avg,
@@ -314,7 +337,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
                     loss=losses.avg,
                     loss_x=losses_x.avg,
                     loss_u=losses_u.avg,
-            loss_m=losses_abc.avg,
+                    loss_m=losses_abc.avg,
+                    loss_bmb=loss_tcp
                     )
         bar.next()
     bar.finish()

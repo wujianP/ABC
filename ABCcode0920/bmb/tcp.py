@@ -3,27 +3,28 @@ from bmb import label2onehot, get_index, generate_probs_per_class, log_single_st
 
 
 class TailClassPool(object):
-    def __init__(self, pool_size, balance_power, sample_power):
+    def __init__(self, pool_size, balance_power, sample_power, class_distribution):
         self.pool_size = pool_size
         self.balance_power = balance_power
         self.sample_power = sample_power
         self.sample_num = 0  # in-pool sample num
         self.feat_dim = 128
+        self.class_num = len(class_distribution)
+        self.class_distribution = class_distribution
         self.feature_pool = torch.zeros(self.pool_size, self.feat_dim)
         self.label_pool = torch.ones(self.pool_size) * -1
 
     @torch.no_grad()
-    def put_samples(self, class_distribution, input_features, input_labels):
+    def put_samples(self, input_features, input_labels):
         """
         Args:
-            class_distribution: [C] number of samples per class
             input_features: [B, feat_dim] features of samples
             input_labels: [B] labels of samples
         """
         input_labels = input_labels.detach()
 
-        B, C = input_features.shape[0], class_distribution.shape[0]
-        input_onehot = label2onehot(label=input_labels, batch=B, num_class=C, to_cuda=True)
+        B = input_features.shape[0]
+        input_onehot = label2onehot(label=input_labels, batch=B, num_class=self.class_num, to_cuda=True)
 
         # 按照类别样本数量分布，选取本次需要加入的样本
         inpool_onehot = label2onehot(label=self.label_pool[:self.sample_num], batch=self.sample_num, num_class=C)
@@ -72,19 +73,19 @@ class TailClassPool(object):
         return remove_num, remove_labels
 
     @torch.no_grad()
-    def get_samples(self, get_num, class_distribution):
+    def get_samples(self, get_num):
         """
         Args:
             get_num: 需要从pool中采样的样本数量
             class_distribution: 当前的各类别样本分布, [C]
         """
         get_num = self.sample_num if get_num > self.sample_num else get_num
-        C = class_distribution.shape[0]
+        C = self.class_num
         inpool_onehot = label2onehot(label=self.label_pool[:self.sample_num], batch=self.sample_num, num_class=C)
 
         # 按照类别样本数量分布，选取本次需要加入的样本
         get_probs_per_class = generate_probs_per_class(sample_fun_type='poly_inv',
-                                                       stat_per_class=class_distribution,
+                                                       stat_per_class=self.class_distribution,
                                                        power=self.sample_power,
                                                        norm_type='global', )
         get_probs_per_sample = inpool_onehot @ get_probs_per_class  # [sample_num,C]x[C]->[sample_num]
