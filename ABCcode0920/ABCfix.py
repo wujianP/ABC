@@ -62,8 +62,8 @@ parser.add_argument('--imbalancetype', type=str, default='long', help='Long tail
 # add by BMB
 parser.add_argument("--pool_size", type=int, default=128)
 parser.add_argument("--get_num", type=int, default=64)
-parser.add_argument("--bp_power", type=int)
-parser.add_argument("--sp_power", type=int)
+parser.add_argument("--bp_power", type=float)
+parser.add_argument("--sp_power", type=float)
 parser.add_argument("--bmb_loss_wt", type=float)
 parser.add_argument("--num_max_l", type=int)
 parser.add_argument("--num_max_u", type=int)
