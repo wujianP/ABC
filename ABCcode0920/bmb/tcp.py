@@ -56,6 +56,7 @@ class TailClassPool(object):
         else:
             # 空位不够了，需要移除一些样本
             remove_num = put_num - empty_num  # 需要移除的样本数
+            C = self.class_num
             inpool_onehot = label2onehot(label=self.label_pool[:self.sample_num], batch=self.sample_num, num_class=C)
 
             remove_probs_per_sample = 1 - inpool_onehot @ put_probs_per_class
