@@ -63,6 +63,9 @@ parser.add_argument("--pool_size", type=int, default=128)
 parser.add_argument("--get_num", type=int, default=64)
 parser.add_argument("--bp_power", type=int)
 parser.add_argument("--sp_power", type=int)
+parser.add_argument("--bmb_loss_wt", type=float)
+parser.add_argument("--num_max_l", type=int)
+parser.add_argument("--num_max_u", type=int)
 
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
@@ -97,8 +100,8 @@ def main():
     if not os.path.isdir(args.out):
         mkdir_p(args.out)
 
-    N_SAMPLES_PER_CLASS = make_imb_data(args.num_max, num_class, args.imb_ratio,args.imbalancetype)
-    U_SAMPLES_PER_CLASS = make_imb_data((100-args.label_ratio)/args.label_ratio * args.num_max, num_class, args.imb_ratio,args.imbalancetype)
+    N_SAMPLES_PER_CLASS = make_imb_data(args.num_max_l, num_class, args.imb_ratio, args.imbalancetype)
+    U_SAMPLES_PER_CLASS = make_imb_data(args.num_max_u, num_class, args.imb_ratio, args.imbalancetype)
     ir2=N_SAMPLES_PER_CLASS[-1]/np.array(N_SAMPLES_PER_CLASS)
     if args.dataset == 'cifar10':
         train_labeled_set, train_unlabeled_set,test_set = dataset.get_cifar10('./data', N_SAMPLES_PER_CLASS,U_SAMPLES_PER_CLASS)
@@ -162,7 +165,6 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
-
         # Training part
         train_loss, train_loss_x, train_loss_u, abcloss = train(labeled_trainloader,
                                                                 unlabeled_trainloader,
@@ -193,6 +195,7 @@ def main():
             }, epoch + 1)
 
     logger.close()
+
 def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, criterion, epoch,ir2, tcp):
     batch_time = AverageMeter()
     data_time = AverageMeter()
