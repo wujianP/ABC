@@ -27,7 +27,7 @@ class TailClassPool(object):
         input_onehot = label2onehot(label=input_labels, batch=B, num_class=self.class_num, to_cuda=True)
 
         # 按照类别样本数量分布，选取本次需要加入的样本
-        inpool_onehot = label2onehot(label=self.label_pool[:self.sample_num], batch=self.sample_num, num_class=C)
+        inpool_onehot = label2onehot(label=self.label_pool[:self.sample_num], batch=self.sample_num, num_class=self.class_num)
         in_pool_num_per_class = torch.sum(inpool_onehot, dim=0)
         put_probs_per_class = generate_probs_per_class(sample_fun_type='poly_inv',
                                                        stat_per_class=in_pool_num_per_class,

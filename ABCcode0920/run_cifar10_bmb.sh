@@ -13,4 +13,9 @@ python ABCfix.py \
 --imb_ratio 10 \
 --epoch 500 \
 --val-iteration 500 \
---out $FOLDERDIR
+--out $FOLDERDIR \
+--pool_size 128 \
+--get_num 64 \
+--bp_power 2 \
+--sp_power 1 \
+--bmb_loss_wt 1
