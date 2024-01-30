@@ -325,9 +325,6 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         batch_time.update(time.time() - end)
         end = time.time()
 
-        # plot progress
-        from IPython import embed
-        embed()
         bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | ' \
                       'Loss: {loss:.4f} | Loss_x: {loss_x:.4f} | Loss_u: {loss_u:.4f}| Loss_m: {loss_m:.4f} | ' \
                       'loss_tcp: {loss_tcp:.4f}'.format(
@@ -341,7 +338,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
                     loss_x=losses_x.avg,
                     loss_u=losses_u.avg,
                     loss_m=losses_abc.avg,
-                    loss_tcp=loss_tcp
+                    loss_tcp=loss_tcp.item()
                     )
         bar.next()
     bar.finish()
